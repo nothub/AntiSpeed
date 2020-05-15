@@ -1,0 +1,5 @@
+name: AntiSpeed
+version: ${project.version}
+description: Limit maximum travel speed
+authors: [blockparole]
+main: not.hub.antispeed.AntiSpeed
