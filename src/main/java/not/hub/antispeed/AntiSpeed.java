@@ -47,12 +47,6 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
         lastLocations.put(player.getUniqueId(), currentLocation);
 
-        // TODO: do action on speed violation
-        LOGGY.info(historicalDistances.toString());
-        historicalDistances.forEach((uuid, doubles) ->
-                LOGGY.info(uuid + " average distance diff: " + doubles.stream().collect(
-                        Collectors.summarizingDouble(Double::doubleValue))));
-
     }
 
     @Override
@@ -63,10 +57,17 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
         getServer().getPluginManager().registerEvents(this, this);
 
-        getServer().getScheduler().scheduleSyncRepeatingTask(this, () ->
-                getServer().getOnlinePlayers().forEach(
-                        this::calcPlayerDistanceDiff
-                ), 0L, 10L);
+        getServer().getScheduler().scheduleSyncRepeatingTask(this, () -> {
+
+            getServer().getOnlinePlayers().forEach(this::calcPlayerDistanceDiff);
+
+            // TODO: do action on speed violation
+            LOGGY.info(historicalDistances.toString());
+            historicalDistances.forEach((uuid, doubles) ->
+                    LOGGY.info(uuid + " average distance diff: " + doubles.stream().collect(
+                            Collectors.summarizingDouble(Double::doubleValue))));
+
+        }, 0L, 10L);
 
     }
 
