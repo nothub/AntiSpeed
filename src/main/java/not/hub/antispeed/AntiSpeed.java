@@ -47,7 +47,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
         lastLocations.put(player.getUniqueId(), currentLocation);
 
-        // TODO: calculate average speed and do action on speed violation
+        // TODO: do action on speed violation
         LOGGY.info(historicalDistances.toString());
         historicalDistances.forEach((uuid, doubles) ->
                 LOGGY.info(uuid + " average distance diff: " + doubles.stream().collect(
@@ -86,7 +86,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     }
 
     @EventHandler
-    public void onPlayerRespawnEvent(final PlayerRespawnEvent playerRespawnEvent) {
+    public void onPlayerRespawn(final PlayerRespawnEvent playerRespawnEvent) {
 
         LOGGY.info("Resetting stats for " + playerRespawnEvent.getPlayer().getName() + " because of PlayerRespawnEvent");
 
