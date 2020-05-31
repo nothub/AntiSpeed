@@ -9,3 +9,6 @@ target/
 # IntelliJ
 .idea
 *.iml
+
+# Custom
+server/
