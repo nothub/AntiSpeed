@@ -1,5 +1,5 @@
 name: AntiSpeed
 version: ${project.version}
-description: Limit travel speed
+description: Limit travel speed to prevent server lag
 authors: [blockparole]
 main: not.hub.antispeed.AntiSpeed
