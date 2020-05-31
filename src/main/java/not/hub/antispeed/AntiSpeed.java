@@ -213,7 +213,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         getConfig().addDefault("blocks-traveled-per-20-ticks-limit", 80);
         getConfig().addDefault("ignore-vertical-movement", true);
         getConfig().addDefault("warn-message-enabled", true);
-        getConfig().addDefault("warn-message", ChatColor.LIGHT_PURPLE + "0bOp whispers: Dude slow down or the server will catch on fire!");
+        getConfig().addDefault("warn-message", ChatColor.LIGHT_PURPLE + "Leeeunderscore whispers: Dude slow down or the server will catch on fire!");
         getConfig().options().copyDefaults(true);
         saveConfig();
     }
