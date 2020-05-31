@@ -21,6 +21,7 @@ import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -29,83 +30,42 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
     public static final Logger LOGGY = LogManager.getLogger("AntiSpeed");
 
-    private static final int MAX_BPS = 80;
+    private static int configMaxBps;
+    private static boolean configIgnoreY;
+    private static String configViolationMessage;
+    private static boolean configViolationMessageEnabled;
 
     private Map<UUID, Location> lastTickLocations;
-    private Map<UUID, Location> lastCheckLocations;
     private Map<UUID, EvictingQueue<Double>> historicalDistances;
+    private Map<UUID, Location> rubberbandLocations;
 
-    private DecimalFormat bpsFormat;
-
-    public void calcPlayerDistanceDiff(Player player) {
-
-        if (!lastTickLocations.containsKey(player.getUniqueId()) || !historicalDistances.containsKey(player.getUniqueId())) {
-            resetPlayerData(player, "player unknown");
-            return;
-        }
-
-        if (!lastTickLocations.get(player.getUniqueId()).getWorld().equals(player.getWorld())) {
-            resetPlayerData(player, "player world changed");
-            return;
-        }
-
-        Location currentLocation = player.getLocation();
-
-        EvictingQueue<Double> historicalDistancesPlayer = historicalDistances.get(player.getUniqueId());
-        historicalDistancesPlayer.add(currentLocation.distance(lastTickLocations.get(player.getUniqueId())));
-        historicalDistances.put(player.getUniqueId(), historicalDistancesPlayer);
-
-        lastTickLocations.put(player.getUniqueId(), currentLocation);
-
-    }
-
-    private void violationAction(Player player, double bps) {
-
-        LOGGY.info("speed for " + player.getName() + ": " + bpsFormat.format(bps) + "m/s (" + bpsFormat.format(bps * 3.6) + "km/h)");
-
-        Location lastLocation = lastCheckLocations.get(player.getUniqueId());
-        Location newLocation = new Location(lastLocation.getWorld(), lastLocation.getX(), lastLocation.getY(), lastLocation.getZ(), lastLocation.getYaw() * -1, -90);
-
-        player.setGliding(false);
-
-        PaperLib.teleportAsync(player, newLocation).thenAccept(result -> {
-
-            String location = newLocation.toString();
-
-            if (result) {
-                LOGGY.info("Teleported " + player.getName() + " to " + location);
-                player.sendMessage(ChatColor.LIGHT_PURPLE + "0bOp whispers: Dude slow down or the server will catch fire!");
-            } else {
-                LOGGY.warn("Unable to teleport " + player.getName() + " to " + location);
-            }
-
-        });
-
-    }
-
-    public void resetPlayerData(Player player, String reason) {
-        LOGGY.info("Resetting data for: " + player.getName() + " Reason: " + reason);
-        lastTickLocations.put(player.getUniqueId(), player.getLocation());
-        lastCheckLocations.put(player.getUniqueId(), player.getLocation());
-        historicalDistances.put(player.getUniqueId(), EvictingQueue.create(20));
-    }
-
-    private void schedulePlayerDataReset(Player player, String reason) {
-        LOGGY.info("Scheduling data reset for: " + player.getName() + " Reason: " + reason);
-        getServer().getScheduler().scheduleSyncDelayedTask(this, () ->
-                resetPlayerData(player,
-                        reason), 1L);
-    }
+    private DecimalFormat bpsFormatter;
+    private DecimalFormat locFormatter;
+    private Random random;
 
     @Override
     public void onEnable() {
 
         this.lastTickLocations = new HashMap<>();
-        this.lastCheckLocations = new HashMap<>();
+        this.rubberbandLocations = new HashMap<>();
         this.historicalDistances = new HashMap<>();
 
-        bpsFormat = new DecimalFormat("#.000");
-        bpsFormat.setRoundingMode(RoundingMode.FLOOR);
+        bpsFormatter = new DecimalFormat("#.000");
+        bpsFormatter.setRoundingMode(RoundingMode.FLOOR);
+
+        locFormatter = new DecimalFormat("#.00");
+        locFormatter.setRoundingMode(RoundingMode.FLOOR);
+
+        random = new Random();
+
+        loadConfig();
+        configMaxBps = getConfig().getInt("blocks-traveled-per-20-ticks-limit");
+        configIgnoreY = getConfig().getBoolean("ignore-y-movement");
+        configViolationMessageEnabled = getConfig().getBoolean("warn-message-enabled");
+        configViolationMessage = getConfig().getString("warn-message");
+
+        LOGGY.info("Blocks traveled per 20 ticks limit: " + configMaxBps);
+        LOGGY.info("Ignoring Y movement: " + configIgnoreY);
 
         getServer().getPluginManager().registerEvents(this, this);
 
@@ -115,11 +75,11 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
             double bps = historicalDistances.get(player.getUniqueId()).stream().collect(Collectors.summarizingDouble(Double::doubleValue)).getSum();
 
-            if (bps > MAX_BPS) {
+            if (bps > configMaxBps) {
                 violationAction(player, bps);
             }
 
-            lastCheckLocations.put(player.getUniqueId(), player.getLocation());
+            rubberbandLocations.put(player.getUniqueId(), player.getLocation());
 
         }), 40L, 20L);
 
@@ -129,6 +89,89 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     public void onDisable() {
         HandlerList.unregisterAll((Plugin) this);
         getServer().getScheduler().cancelTasks(this);
+    }
+
+    public void calcPlayerDistanceDiff(Player player) {
+
+        if (!lastTickLocations.containsKey(player.getUniqueId()) || !historicalDistances.containsKey(player.getUniqueId())) {
+            resetPlayerData(player, player.getName() + " was not seen before, somehow we missed the join event");
+            return;
+        }
+
+        if (!lastTickLocations.get(player.getUniqueId()).getWorld().equals(player.getWorld())) {
+            resetPlayerData(player, player.getName() + " changed world, somehow we missed the teleport event");
+            return;
+        }
+
+        EvictingQueue<Double> historicalDistancesPlayer = historicalDistances.get(player.getUniqueId());
+        Location location = getPlayerMeasuringLocation(player);
+        historicalDistancesPlayer.add(location.distance(lastTickLocations.get(player.getUniqueId())));
+        historicalDistances.put(player.getUniqueId(), historicalDistancesPlayer);
+
+        lastTickLocations.put(player.getUniqueId(), location);
+
+    }
+
+    private void violationAction(Player player, double bps) {
+
+        LOGGY.info(player.getName() + " is too fast: " + bpsFormatter.format(bps) + "b/s (" + bpsFormatter.format(bps * 3.6) + "kb/h)");
+
+        Location originalLocation = rubberbandLocations.get(player.getUniqueId());
+        Location targetLocation = new Location(originalLocation.getWorld(), originalLocation.getX(), originalLocation.getY(), originalLocation.getZ(),
+                random.nextInt(90) * (random.nextBoolean() ? -1 : 1),
+                (random.nextInt(90 - 45) + 45) * -1
+        );
+
+        player.setGliding(false);
+
+        PaperLib.teleportAsync(player, targetLocation).thenAccept(result -> {
+
+            StringBuilder targetLocationString = new StringBuilder()
+                    .append("world=").append(targetLocation.getWorld().getName())
+                    .append(", x=").append(locFormatter.format(targetLocation.getX()))
+                    .append(", y=").append(locFormatter.format(targetLocation.getY()))
+                    .append(", z=").append(locFormatter.format(targetLocation.getZ()));
+
+            if (result) {
+                LOGGY.info("Teleported " + player.getName() + " back to: " + targetLocationString);
+                if (configViolationMessageEnabled) {
+                    player.sendMessage(configViolationMessage);
+                }
+            } else {
+                LOGGY.warn("Unable to teleport " + player.getName() + " back to: " + targetLocationString);
+            }
+
+        });
+
+    }
+
+    private Location getPlayerMeasuringLocation(Player player) {
+        Location location = player.getLocation();
+        if (configIgnoreY) {
+            location.setY(0);
+        }
+        return location;
+    }
+
+    public void resetPlayerData(Player player, String reason) {
+        LOGGY.info("Resetting data for: " + player.getName() + " Reason: " + reason);
+        lastTickLocations.put(player.getUniqueId(), getPlayerMeasuringLocation(player));
+        rubberbandLocations.put(player.getUniqueId(), player.getLocation());
+        historicalDistances.put(player.getUniqueId(), EvictingQueue.create(20));
+    }
+
+    public void removePlayerData(Player player, String reason) {
+        LOGGY.info("Removing data for: " + player.getName() + " Reason: " + reason);
+        lastTickLocations.remove(player.getUniqueId());
+        rubberbandLocations.remove(player.getUniqueId());
+        historicalDistances.remove(player.getUniqueId());
+    }
+
+    private void schedulePlayerDataReset(Player player, String reason) {
+        LOGGY.info("Scheduling data reset for: " + player.getName() + " Reason: " + reason);
+        getServer().getScheduler().scheduleSyncDelayedTask(this, () ->
+                resetPlayerData(player,
+                        reason), 1L);
     }
 
     @EventHandler
@@ -151,7 +194,16 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onPlayerQuitEvent(final PlayerQuitEvent playerQuitEvent) {
-        resetPlayerData(playerQuitEvent.getPlayer(), "PlayerQuitEvent");
+        removePlayerData(playerQuitEvent.getPlayer(), "PlayerQuitEvent");
+    }
+
+    private void loadConfig() {
+        getConfig().addDefault("blocks-traveled-per-20-ticks-limit", 80);
+        getConfig().addDefault("ignore-y-movement", true);
+        getConfig().addDefault("warn-message-enabled", true);
+        getConfig().addDefault("warn-message", ChatColor.LIGHT_PURPLE + "0bOp whispers: Dude slow down or the server will catch on fire!");
+        getConfig().options().copyDefaults(true);
+        saveConfig();
     }
 
 }
