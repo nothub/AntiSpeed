@@ -31,7 +31,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     public static final Logger LOGGY = LogManager.getLogger("AntiSpeed");
 
     private static int configMaxBps;
-    private static boolean configIgnoreY;
+    private static boolean configIgnoreVertical;
     private static String configViolationMessage;
     private static boolean configViolationMessageEnabled;
 
@@ -58,14 +58,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
         random = new Random();
 
-        loadConfig();
-        configMaxBps = getConfig().getInt("blocks-traveled-per-20-ticks-limit");
-        configIgnoreY = getConfig().getBoolean("ignore-y-movement");
-        configViolationMessageEnabled = getConfig().getBoolean("warn-message-enabled");
-        configViolationMessage = getConfig().getString("warn-message");
-
-        LOGGY.info("Blocks traveled per 20 ticks limit: " + configMaxBps);
-        LOGGY.info("Ignoring Y movement: " + configIgnoreY);
+        initConfig();
 
         getServer().getPluginManager().registerEvents(this, this);
 
@@ -82,6 +75,25 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
             rubberbandLocations.put(player.getUniqueId(), player.getLocation());
 
         }), 40L, 20L);
+
+    }
+
+    private void initConfig() {
+
+        loadConfig();
+
+        configMaxBps = getConfig().getInt("blocks-traveled-per-20-ticks-limit");
+        LOGGY.info("Blocks traveled per 20 ticks limit: " + configMaxBps);
+
+        configIgnoreVertical = getConfig().getBoolean("ignore-vertical-movement");
+        LOGGY.info("Ignoring vertical movement: " + configIgnoreVertical);
+
+        configViolationMessageEnabled = getConfig().getBoolean("warn-message-enabled");
+
+        if (configViolationMessageEnabled) {
+            configViolationMessage = getConfig().getString("warn-message");
+            LOGGY.info("Chat warning message: " + configIgnoreVertical);
+        }
 
     }
 
@@ -114,7 +126,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
     private void violationAction(Player player, double bps) {
 
-        LOGGY.info(player.getName() + " is too fast: " + bpsFormatter.format(bps) + "b/s (" + bpsFormatter.format(bps * 3.6) + "kb/h)");
+        LOGGY.info(ChatColor.YELLOW + player.getName() + " is too fast: " + bpsFormatter.format(bps) + "b/s (" + bpsFormatter.format(bps * 3.6) + "kb/h)");
 
         Location originalLocation = rubberbandLocations.get(player.getUniqueId());
         Location targetLocation = new Location(originalLocation.getWorld(), originalLocation.getX(), originalLocation.getY(), originalLocation.getZ(),
@@ -133,12 +145,12 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
                     .append(", z=").append(locFormatter.format(targetLocation.getZ()));
 
             if (result) {
-                LOGGY.info("Teleported " + player.getName() + " back to: " + targetLocationString);
+                LOGGY.info(ChatColor.YELLOW + "Teleported " + player.getName() + " back to: " + targetLocationString);
                 if (configViolationMessageEnabled) {
                     player.sendMessage(configViolationMessage);
                 }
             } else {
-                LOGGY.warn("Unable to teleport " + player.getName() + " back to: " + targetLocationString);
+                LOGGY.warn(ChatColor.RED + "Unable to teleport " + player.getName() + " back to: " + targetLocationString);
             }
 
         });
@@ -147,7 +159,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
     private Location getPlayerMeasuringLocation(Player player) {
         Location location = player.getLocation();
-        if (configIgnoreY) {
+        if (configIgnoreVertical) {
             location.setY(0);
         }
         return location;
@@ -161,14 +173,14 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     }
 
     public void removePlayerData(Player player, String reason) {
-        LOGGY.info("Removing data for: " + player.getName() + " Reason: " + reason);
+        LOGGY.debug("Removing data for: " + player.getName() + " Reason: " + reason);
         lastTickLocations.remove(player.getUniqueId());
         rubberbandLocations.remove(player.getUniqueId());
         historicalDistances.remove(player.getUniqueId());
     }
 
     private void schedulePlayerDataReset(Player player, String reason) {
-        LOGGY.info("Scheduling data reset for: " + player.getName() + " Reason: " + reason);
+        LOGGY.debug("Scheduling data reset for: " + player.getName() + " Reason: " + reason);
         getServer().getScheduler().scheduleSyncDelayedTask(this, () ->
                 resetPlayerData(player,
                         reason), 1L);
@@ -199,7 +211,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
     private void loadConfig() {
         getConfig().addDefault("blocks-traveled-per-20-ticks-limit", 80);
-        getConfig().addDefault("ignore-y-movement", true);
+        getConfig().addDefault("ignore-vertical-movement", true);
         getConfig().addDefault("warn-message-enabled", true);
         getConfig().addDefault("warn-message", ChatColor.LIGHT_PURPLE + "0bOp whispers: Dude slow down or the server will catch on fire!");
         getConfig().options().copyDefaults(true);
