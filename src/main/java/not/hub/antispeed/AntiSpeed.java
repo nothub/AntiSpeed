@@ -31,7 +31,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
     public void resetPlayerData(Player player) {
         lastLocations.put(player.getUniqueId(), player.getLocation());
-        historicalDistances.put(player.getUniqueId(), EvictingQueue.create(10));
+        historicalDistances.put(player.getUniqueId(), EvictingQueue.create(20));
     }
 
     public void calcPlayerDistanceDiff(Player player) {
@@ -42,10 +42,9 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         }
 
         Location currentLocation = player.getLocation();
-        Double distanceCurrentToLast = Math.round(currentLocation.distance(lastLocations.get(player.getUniqueId())) * 10) / 10.0;
 
         EvictingQueue<Double> historicalDistancesPlayer = historicalDistances.get(player.getUniqueId());
-        historicalDistancesPlayer.add(distanceCurrentToLast);
+        historicalDistancesPlayer.add(currentLocation.distance(lastLocations.get(player.getUniqueId())));
         historicalDistances.put(player.getUniqueId(), historicalDistancesPlayer);
 
         lastLocations.put(player.getUniqueId(), currentLocation);
@@ -60,22 +59,16 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
         getServer().getPluginManager().registerEvents(this, this);
 
-        getServer().getScheduler().scheduleSyncRepeatingTask(this, () -> {
+        getServer().getScheduler().scheduleSyncRepeatingTask(this, () -> getServer().getOnlinePlayers().forEach(this::calcPlayerDistanceDiff), 20L, 1L);
 
-            getServer().getOnlinePlayers().forEach(player -> {
+        getServer().getScheduler().scheduleSyncRepeatingTask(this, () -> getServer().getOnlinePlayers().forEach(player -> {
 
-                LOGGY.info("Calculating Distance for: " + player.getName());
+            LOGGY.info("Historical Distances for " + player.getName() + ": " + historicalDistances.get(player.getUniqueId()));
+            LOGGY.info("Average Distance Diff for " + player.getName() + ": " + historicalDistances.get(player.getUniqueId()).stream().collect(Collectors.summarizingDouble(Double::doubleValue)));
 
-                calcPlayerDistanceDiff(player);
+            // TODO: do action on speed violation
 
-                LOGGY.info("Historical Distances for " + player.getName() + ": " + historicalDistances.get(player.getUniqueId()));
-                LOGGY.info("Average Distance Diff for " + player.getName() + ": " + historicalDistances.get(player.getUniqueId()).stream().collect(Collectors.summarizingDouble(Double::doubleValue)));
-
-                // TODO: do action on speed violation
-
-            });
-
-        }, 0L, 10L);
+        }), 40L, 20L);
 
     }
 
