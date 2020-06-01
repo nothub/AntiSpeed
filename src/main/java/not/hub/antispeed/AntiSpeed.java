@@ -25,13 +25,12 @@ import java.util.stream.Collectors;
 @SuppressWarnings("UnstableApiUsage")
 public final class AntiSpeed extends JavaPlugin implements Listener {
 
-    public static final Logger LOGGY = LogManager.getLogger("AntiSpeed");
-
     private static int configMaxBps;
     private static boolean configIgnoreVertical;
     private static boolean configRandomizeRotations;
     private static boolean configViolationMessageEnabled;
     private static String configViolationMessage;
+    private static boolean configVerboseLogging;
 
     private Map<UUID, Location> lastTickLocations;
     private Map<UUID, EvictingQueue<Double>> historicalDistances;
@@ -83,19 +82,22 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         loadConfig();
 
         configMaxBps = getConfig().getInt("blocks-traveled-per-20-ticks-limit");
-        LOGGY.debug("blocks-traveled-per-20-ticks-limit=" + configMaxBps);
+        Log.debug("blocks-traveled-per-20-ticks-limit=" + configMaxBps);
 
         configIgnoreVertical = getConfig().getBoolean("ignore-vertical-movement");
-        LOGGY.debug("ignore-vertical-movement=" + configIgnoreVertical);
+        Log.debug("ignore-vertical-movement=" + configIgnoreVertical);
 
         configRandomizeRotations = getConfig().getBoolean("randomize-rotations-on-violation");
-        LOGGY.debug("randomize-rotations-on-violation=" + configRandomizeRotations);
+        Log.debug("randomize-rotations-on-violation=" + configRandomizeRotations);
 
         configViolationMessageEnabled = getConfig().getBoolean("warn-message-enabled");
-        LOGGY.debug("warn-message-enabled=" + configViolationMessageEnabled);
+        Log.debug("warn-message-enabled=" + configViolationMessageEnabled);
 
         configViolationMessage = getConfig().getString("warn-message");
-        LOGGY.debug("warn-message=\"" + configViolationMessage + "\"");
+        Log.debug("warn-message=\"" + configViolationMessage + "\"");
+
+        configVerboseLogging = getConfig().getBoolean("verbose-logging");
+        Log.debug("verbose-logging=" + configVerboseLogging);
 
     }
 
@@ -131,11 +133,11 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     private void violationAction(Player player, double bps) {
 
         if (isOnCooldown(player)) {
-            LOGGY.info(player.getName() + " is too fast, but hes on cooldown so its cool :)");
+            Log.debug(player.getName() + " is too fast, but hes on cooldown so its cool :)");
             return;
         }
 
-        LOGGY.info(ChatColor.YELLOW + player.getName() + " is too fast: " + bpsFormatter.format(bps) + "b/s (" + bpsFormatter.format(bps * 3.6) + "kb/h)");
+        Log.info(ChatColor.YELLOW + player.getName() + " is too fast: " + bpsFormatter.format(bps) + "b/s (" + bpsFormatter.format(bps * 3.6) + "kb/h)");
 
 
         Location originalLocation = rubberbandLocations.get(player.getUniqueId());
@@ -170,12 +172,12 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
                     .append(", z=").append(locFormatter.format(targetLocation.getZ()));
 
             if (result) {
-                LOGGY.info(ChatColor.YELLOW + "Teleported " + player.getName() + " back to: " + targetLocationString);
+                Log.info(ChatColor.YELLOW + "Teleported " + player.getName() + " back to: " + targetLocationString);
                 if (configViolationMessageEnabled) {
                     player.sendMessage(configViolationMessage);
                 }
             } else {
-                LOGGY.warn(ChatColor.RED + "Unable to teleport " + player.getName() + " back to: " + targetLocationString);
+                Log.error(ChatColor.RED + "Unable to teleport " + player.getName() + " back to: " + targetLocationString);
             }
 
         });
@@ -191,20 +193,20 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     }
 
     private void schedulePlayerDataReset(Player player, String reason) {
-        LOGGY.info("Scheduling data reset for: " + player.getName() + " Reason: " + reason);
+        Log.debug("Scheduling data reset for: " + player.getName() + " Reason: " + reason);
         getServer().getScheduler().scheduleSyncDelayedTask(this, () ->
                 resetPlayerData(player, reason), 1L);
     }
 
     public void resetPlayerData(Player player, String reason) {
-        LOGGY.info("Resetting data for: " + player.getName() + " Reason: " + reason);
+        Log.debug("Resetting data for: " + player.getName() + " Reason: " + reason);
         lastTickLocations.put(player.getUniqueId(), getPlayerMeasuringLocation(player));
         rubberbandLocations.put(player.getUniqueId(), player.getLocation());
         historicalDistances.put(player.getUniqueId(), EvictingQueue.create(20));
     }
 
     public void removePlayerData(Player player, String reason) {
-        LOGGY.info("Removing data for: " + player.getName() + " Reason: " + reason);
+        Log.debug("Removing data for: " + player.getName() + " Reason: " + reason);
         lastTickLocations.remove(player.getUniqueId());
         rubberbandLocations.remove(player.getUniqueId());
         historicalDistances.remove(player.getUniqueId());
@@ -213,11 +215,11 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
     private void enableCooldown(Player player) {
         onCooldown.put(player.getUniqueId(), true);
-        LOGGY.debug(player.getName() + " is on cooldown now for 100 ticks");
+        Log.debug(player.getName() + " is on cooldown now for 100 ticks");
         getServer().getScheduler().scheduleSyncDelayedTask(this, () ->
         {
             onCooldown.put(player.getUniqueId(), false);
-            LOGGY.debug(player.getName() + " is off cooldown again");
+            Log.debug(player.getName() + " is off cooldown again");
         }, 100L);
     }
 
@@ -232,8 +234,10 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
                 || cause.equals(PlayerTeleportEvent.TeleportCause.NETHER_PORTAL)
                 || cause.equals(PlayerTeleportEvent.TeleportCause.END_PORTAL)
         ) {
+            Log.debug("Ignoring Teleport event of type: " + playerTeleportEvent.getCause().toString());
             return;
         }
+        Log.debug("Detected Teleport event of type: " + playerTeleportEvent.getCause().toString());
         enableCooldown(playerTeleportEvent.getPlayer());
         schedulePlayerDataReset(playerTeleportEvent.getPlayer(), "PlayerTeleportEvent (" + playerTeleportEvent.getCause().toString() + ")");
     }
@@ -261,8 +265,35 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         getConfig().addDefault("randomize-rotations-on-violation", true);
         getConfig().addDefault("warn-message-enabled", true);
         getConfig().addDefault("warn-message", ChatColor.LIGHT_PURPLE + "Leeeunderscore whispers: Dude slow down or I will ban you!");
+        getConfig().addDefault("verbose-logging", false);
         getConfig().options().copyDefaults(true);
         saveConfig();
+    }
+
+    static class Log {
+
+        public static final Logger LOGGY = LogManager.getLogger("AntiSpeed");
+
+        public static void debug(String message) {
+            if (configVerboseLogging) {
+                LOGGY.info(message);
+            } else {
+                LOGGY.debug(message);
+            }
+        }
+
+        public static void info(String message) {
+            LOGGY.info(message);
+        }
+
+        public static void warn(String message) {
+            LOGGY.warn(message);
+        }
+
+        public static void error(String message) {
+            LOGGY.error(message);
+        }
+
     }
 
 }
