@@ -19,10 +19,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.math.RoundingMode;
 import java.text.DecimalFormat;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Random;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @SuppressWarnings("UnstableApiUsage")
@@ -32,12 +29,14 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
     private static int configMaxBps;
     private static boolean configIgnoreVertical;
-    private static String configViolationMessage;
+    private static boolean configRandomizeRotations;
     private static boolean configViolationMessageEnabled;
+    private static String configViolationMessage;
 
     private Map<UUID, Location> lastTickLocations;
     private Map<UUID, EvictingQueue<Double>> historicalDistances;
     private Map<UUID, Location> rubberbandLocations;
+    private Map<UUID, Boolean> onCooldown;
 
     private DecimalFormat bpsFormatter;
     private DecimalFormat locFormatter;
@@ -49,6 +48,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         this.lastTickLocations = new HashMap<>();
         this.rubberbandLocations = new HashMap<>();
         this.historicalDistances = new HashMap<>();
+        this.onCooldown = new HashMap<>();
 
         bpsFormatter = new DecimalFormat("#.000");
         bpsFormatter.setRoundingMode(RoundingMode.FLOOR);
@@ -83,17 +83,19 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         loadConfig();
 
         configMaxBps = getConfig().getInt("blocks-traveled-per-20-ticks-limit");
-        LOGGY.info("Blocks traveled per 20 ticks limit: " + configMaxBps);
+        LOGGY.debug("blocks-traveled-per-20-ticks-limit=" + configMaxBps);
 
         configIgnoreVertical = getConfig().getBoolean("ignore-vertical-movement");
-        LOGGY.info("Ignoring vertical movement: " + configIgnoreVertical);
+        LOGGY.debug("ignore-vertical-movement=" + configIgnoreVertical);
+
+        configRandomizeRotations = getConfig().getBoolean("randomize-rotations-on-violation");
+        LOGGY.debug("randomize-rotations-on-violation=" + configRandomizeRotations);
 
         configViolationMessageEnabled = getConfig().getBoolean("warn-message-enabled");
+        LOGGY.debug("warn-message-enabled=" + configViolationMessageEnabled);
 
-        if (configViolationMessageEnabled) {
-            configViolationMessage = getConfig().getString("warn-message");
-            LOGGY.info("Chat warning message: " + configIgnoreVertical);
-        }
+        configViolationMessage = getConfig().getString("warn-message");
+        LOGGY.debug("warn-message=\"" + configViolationMessage + "\"");
 
     }
 
@@ -106,12 +108,14 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     public void calcPlayerDistanceDiff(Player player) {
 
         if (!lastTickLocations.containsKey(player.getUniqueId()) || !historicalDistances.containsKey(player.getUniqueId())) {
-            resetPlayerData(player, player.getName() + " was not seen before, somehow we missed the join event");
+            enableCooldown(player);
+            resetPlayerData(player, player.getName() + " was not seen before");
             return;
         }
 
         if (!lastTickLocations.get(player.getUniqueId()).getWorld().equals(player.getWorld())) {
-            resetPlayerData(player, player.getName() + " changed world, somehow we missed the teleport event");
+            enableCooldown(player);
+            resetPlayerData(player, player.getName() + " changed world: " + lastTickLocations.get(player.getUniqueId()).getWorld().getName() + " -> " + player.getWorld().getName());
             return;
         }
 
@@ -126,12 +130,33 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
     private void violationAction(Player player, double bps) {
 
+        if (isOnCooldown(player)) {
+            LOGGY.info(player.getName() + " is too fast, but hes on cooldown so its cool :)");
+            return;
+        }
+
         LOGGY.info(ChatColor.YELLOW + player.getName() + " is too fast: " + bpsFormatter.format(bps) + "b/s (" + bpsFormatter.format(bps * 3.6) + "kb/h)");
 
+
         Location originalLocation = rubberbandLocations.get(player.getUniqueId());
-        Location targetLocation = new Location(originalLocation.getWorld(), originalLocation.getX(), originalLocation.getY(), originalLocation.getZ(),
-                random.nextInt(90) * (random.nextBoolean() ? -1 : 1),
-                (random.nextInt(90 - 45) + 45) * -1
+
+        float yaw, pitch;
+
+        if (configRandomizeRotations) {
+            yaw = random.nextInt(90) * (random.nextBoolean() ? -1 : 1);
+            pitch = (random.nextInt(90 - 45) + 45) * -1;
+        } else {
+            yaw = player.getLocation().getYaw();
+            pitch = player.getLocation().getPitch();
+        }
+
+        Location targetLocation = new Location(
+                originalLocation.getWorld(),
+                originalLocation.getX(),
+                originalLocation.getY(),
+                originalLocation.getZ(),
+                yaw,
+                pitch
         );
 
         player.setGliding(false);
@@ -165,6 +190,12 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         return location;
     }
 
+    private void schedulePlayerDataReset(Player player, String reason) {
+        LOGGY.info("Scheduling data reset for: " + player.getName() + " Reason: " + reason);
+        getServer().getScheduler().scheduleSyncDelayedTask(this, () ->
+                resetPlayerData(player, reason), 1L);
+    }
+
     public void resetPlayerData(Player player, String reason) {
         LOGGY.info("Resetting data for: " + player.getName() + " Reason: " + reason);
         lastTickLocations.put(player.getUniqueId(), getPlayerMeasuringLocation(player));
@@ -173,34 +204,49 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     }
 
     public void removePlayerData(Player player, String reason) {
-        LOGGY.debug("Removing data for: " + player.getName() + " Reason: " + reason);
+        LOGGY.info("Removing data for: " + player.getName() + " Reason: " + reason);
         lastTickLocations.remove(player.getUniqueId());
         rubberbandLocations.remove(player.getUniqueId());
         historicalDistances.remove(player.getUniqueId());
+        onCooldown.remove(player.getUniqueId());
     }
 
-    private void schedulePlayerDataReset(Player player, String reason) {
-        LOGGY.debug("Scheduling data reset for: " + player.getName() + " Reason: " + reason);
+    private void enableCooldown(Player player) {
+        onCooldown.put(player.getUniqueId(), true);
+        LOGGY.debug(player.getName() + " is on cooldown now for 100 ticks");
         getServer().getScheduler().scheduleSyncDelayedTask(this, () ->
-                resetPlayerData(player,
-                        reason), 1L);
+        {
+            onCooldown.put(player.getUniqueId(), false);
+            LOGGY.debug(player.getName() + " is off cooldown again");
+        }, 100L);
+    }
+
+    private boolean isOnCooldown(Player player) {
+        return Optional.ofNullable(onCooldown.get(player.getUniqueId())).orElse(false);
     }
 
     @EventHandler
     public void onPlayerTeleport(final PlayerTeleportEvent playerTeleportEvent) {
-        if (playerTeleportEvent.getCause().equals(PlayerTeleportEvent.TeleportCause.UNKNOWN)) {
+        PlayerTeleportEvent.TeleportCause cause = playerTeleportEvent.getCause();
+        if (cause.equals(PlayerTeleportEvent.TeleportCause.UNKNOWN)
+                || cause.equals(PlayerTeleportEvent.TeleportCause.NETHER_PORTAL)
+                || cause.equals(PlayerTeleportEvent.TeleportCause.END_PORTAL)
+        ) {
             return;
         }
+        enableCooldown(playerTeleportEvent.getPlayer());
         schedulePlayerDataReset(playerTeleportEvent.getPlayer(), "PlayerTeleportEvent (" + playerTeleportEvent.getCause().toString() + ")");
     }
 
     @EventHandler
     public void onPlayerRespawn(final PlayerRespawnEvent playerRespawnEvent) {
+        enableCooldown(playerRespawnEvent.getPlayer());
         schedulePlayerDataReset(playerRespawnEvent.getPlayer(), "PlayerRespawnEvent");
     }
 
     @EventHandler
     public void onPlayerJoinEvent(final PlayerJoinEvent playerJoinEvent) {
+        enableCooldown(playerJoinEvent.getPlayer());
         resetPlayerData(playerJoinEvent.getPlayer(), "PlayerJoinEvent");
     }
 
@@ -212,6 +258,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     private void loadConfig() {
         getConfig().addDefault("blocks-traveled-per-20-ticks-limit", 80);
         getConfig().addDefault("ignore-vertical-movement", true);
+        getConfig().addDefault("randomize-rotations-on-violation", true);
         getConfig().addDefault("warn-message-enabled", true);
         getConfig().addDefault("warn-message", ChatColor.LIGHT_PURPLE + "Leeeunderscore whispers: Dude slow down or I will ban you!");
         getConfig().options().copyDefaults(true);
