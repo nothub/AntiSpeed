@@ -4,4 +4,4 @@
 
 A simple Plugin for Minecraft Servers that limits travel speed to prevent server lag.  
 
-This project uses [PaperLib](https://github.com/PaperMC/PaperLib) and was tested on [Paper](https://papermc.io/) 1.12.2.
+This Project uses [PaperLib](https://github.com/PaperMC/PaperLib) and was tested on [Paper](https://papermc.io/) [1.12.2](https://papermc.io/api/v1/paper/1.12.2/1618).
