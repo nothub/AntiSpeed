@@ -81,22 +81,19 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
         loadConfig();
 
-        configMaxBps = getConfig().getInt("blocks-traveled-per-20-ticks-limit");
-        Log.debug("blocks-traveled-per-20-ticks-limit=" + configMaxBps);
-
-        configIgnoreVertical = getConfig().getBoolean("ignore-vertical-movement");
-        Log.debug("ignore-vertical-movement=" + configIgnoreVertical);
-
-        configRandomizeRotations = getConfig().getBoolean("randomize-rotations-on-violation");
-        Log.debug("randomize-rotations-on-violation=" + configRandomizeRotations);
-
-        configViolationMessageEnabled = getConfig().getBoolean("warn-message-enabled");
-        Log.debug("warn-message-enabled=" + configViolationMessageEnabled);
-
-        configViolationMessage = getConfig().getString("warn-message");
-        Log.debug("warn-message=\"" + configViolationMessage + "\"");
-
         configVerboseLogging = getConfig().getBoolean("verbose-logging");
+
+        configMaxBps = getConfig().getInt("blocks-traveled-per-20-ticks-limit");
+        configIgnoreVertical = getConfig().getBoolean("ignore-vertical-movement");
+        configRandomizeRotations = getConfig().getBoolean("randomize-rotations-on-violation");
+        configViolationMessageEnabled = getConfig().getBoolean("warn-message-enabled");
+        configViolationMessage = getConfig().getString("warn-message");
+
+        Log.debug("blocks-traveled-per-20-ticks-limit=" + configMaxBps);
+        Log.debug("ignore-vertical-movement=" + configIgnoreVertical);
+        Log.debug("randomize-rotations-on-violation=" + configRandomizeRotations);
+        Log.debug("warn-message-enabled=" + configViolationMessageEnabled);
+        Log.debug("warn-message=\"" + configViolationMessage + "\"");
         Log.debug("verbose-logging=" + configVerboseLogging);
 
     }
@@ -138,7 +135,6 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         }
 
         Log.info(ChatColor.YELLOW + player.getName() + " is too fast: " + bpsFormatter.format(bps) + "b/s (" + bpsFormatter.format(bps * 3.6) + "kb/h)");
-
 
         Location originalLocation = rubberbandLocations.get(player.getUniqueId());
 
