@@ -31,6 +31,8 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     private static boolean configViolationMessageEnabled;
     private static String configViolationMessage;
     private static boolean configVerboseLogging;
+    private static int configViolationTimespan;
+    private static double configViolationsPerSecond;
 
     private Map<UUID, Location> lastTickLocations;
     private Map<UUID, EvictingQueue<Double>> historicalDistances;
@@ -40,6 +42,8 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     private DecimalFormat bpsFormatter;
     private DecimalFormat locFormatter;
     private Random random;
+
+    private SpaceTimeContinuumCheck violationCheck;
 
     @Override
     public void onEnable() {
@@ -59,6 +63,8 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
         initConfig();
 
+        violationCheck = new SpaceTimeContinuumCheck(configViolationTimespan, configViolationsPerSecond);
+
         getServer().getPluginManager().registerEvents(this, this);
 
         getServer().getScheduler().scheduleSyncRepeatingTask(this, () -> getServer().getOnlinePlayers().forEach(this::calcPlayerDistanceDiff), 20L, 1L);
@@ -68,7 +74,16 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
             double bps = historicalDistances.get(player.getUniqueId()).stream().collect(Collectors.summarizingDouble(Double::doubleValue)).getSum();
 
             if (bps > configMaxBps) {
-                violationAction(player, bps);
+                // nestlerscher unsicherheitsfaktor (falls the server freezes in winter)
+                if (bps > configMaxBps * 1.33D) {
+                    violationAction(player, bps);
+                } else {
+                    // erwin rudolf josef alexander schrödinger was a catfish
+                    if (violationCheck.violatedTheLawsOfPhysics(player)) {
+                        Log.info(ChatColor.AQUA + "Es wurde ein Riss im Raum-Zeit-Kontinuum an der Position von Spieler " + player.getName() + " entdeckt.");
+                        violationAction(player, bps);
+                    }
+                }
             }
 
             rubberbandLocations.put(player.getUniqueId(), player.getLocation());
@@ -88,6 +103,8 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         configRandomizeRotations = getConfig().getBoolean("randomize-rotations-on-violation");
         configViolationMessageEnabled = getConfig().getBoolean("warn-message-enabled");
         configViolationMessage = getConfig().getString("warn-message");
+        configViolationTimespan = getConfig().getInt("violation-check-timespan-in-seconds");
+        configViolationsPerSecond = getConfig().getDouble("violations-per-second");
 
         Log.debug("blocks-traveled-per-20-ticks-limit=" + configMaxBps);
         Log.debug("ignore-vertical-movement=" + configIgnoreVertical);
@@ -95,7 +112,8 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         Log.debug("warn-message-enabled=" + configViolationMessageEnabled);
         Log.debug("warn-message=\"" + configViolationMessage + "\"");
         Log.debug("verbose-logging=" + configVerboseLogging);
-
+        Log.debug("violation-check-timespan-in-seconds=" + configVerboseLogging);
+        Log.debug("violations-per-second=" + configVerboseLogging);
     }
 
     @Override
@@ -253,6 +271,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     @EventHandler
     public void onPlayerQuitEvent(final PlayerQuitEvent playerQuitEvent) {
         removePlayerData(playerQuitEvent.getPlayer(), "PlayerQuitEvent");
+        violationCheck.onPlayerQuit(playerQuitEvent.getPlayer());
     }
 
     private void loadConfig() {
@@ -262,6 +281,8 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         getConfig().addDefault("warn-message-enabled", true);
         getConfig().addDefault("warn-message", ChatColor.LIGHT_PURPLE + "Leeeunderscore whispers: Dude slow down or I will ban you!");
         getConfig().addDefault("verbose-logging", false);
+        getConfig().addDefault("violation-check-timespan-in-seconds", 10);
+        getConfig().addDefault("violations-per-second", 4D / 10D);
         getConfig().options().copyDefaults(true);
         saveConfig();
     }
@@ -280,10 +301,6 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
         public static void info(String message) {
             LOGGY.info(message);
-        }
-
-        public static void warn(String message) {
-            LOGGY.warn(message);
         }
 
         public static void error(String message) {
