@@ -25,12 +25,7 @@ import java.util.stream.Collectors;
 @SuppressWarnings("UnstableApiUsage")
 public final class AntiSpeed extends JavaPlugin implements Listener {
 
-    private static int configMaxBps;
-    private static boolean configIgnoreVertical;
-    private static boolean configRandomizeRotations;
-    private static boolean configViolationMessageEnabled;
-    private static String configViolationMessage;
-    private static boolean configVerboseLogging;
+    private static boolean verboseLogging;
 
     private Map<UUID, Location> lastTickLocations;
     private Map<UUID, EvictingQueue<Double>> historicalDistances;
@@ -57,7 +52,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
         random = new Random();
 
-        initConfig();
+        loadConfig();
 
         getServer().getPluginManager().registerEvents(this, this);
 
@@ -67,34 +62,13 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
             double bps = historicalDistances.get(player.getUniqueId()).stream().collect(Collectors.summarizingDouble(Double::doubleValue)).getSum();
 
-            if (bps > configMaxBps) {
+            if (bps > getConfig().getInt("blocks-traveled-per-20-ticks-limit")) {
                 violationAction(player, bps);
             }
 
             rubberbandLocations.put(player.getUniqueId(), player.getLocation());
 
         }), 40L, 20L);
-
-    }
-
-    private void initConfig() {
-
-        loadConfig();
-
-        configVerboseLogging = getConfig().getBoolean("verbose-logging");
-
-        configMaxBps = getConfig().getInt("blocks-traveled-per-20-ticks-limit");
-        configIgnoreVertical = getConfig().getBoolean("ignore-vertical-movement");
-        configRandomizeRotations = getConfig().getBoolean("randomize-rotations-on-violation");
-        configViolationMessageEnabled = getConfig().getBoolean("warn-message-enabled");
-        configViolationMessage = getConfig().getString("warn-message");
-
-        Log.debug("blocks-traveled-per-20-ticks-limit=" + configMaxBps);
-        Log.debug("ignore-vertical-movement=" + configIgnoreVertical);
-        Log.debug("randomize-rotations-on-violation=" + configRandomizeRotations);
-        Log.debug("warn-message-enabled=" + configViolationMessageEnabled);
-        Log.debug("warn-message=\"" + configViolationMessage + "\"");
-        Log.debug("verbose-logging=" + configVerboseLogging);
 
     }
 
@@ -140,7 +114,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
         float yaw, pitch;
 
-        if (configRandomizeRotations) {
+        if (getConfig().getBoolean("randomize-rotations-on-violation")) {
             yaw = random.nextInt(90) * (random.nextBoolean() ? -1 : 1);
             pitch = (random.nextInt(90 - 45) + 45) * -1;
         } else {
@@ -149,12 +123,12 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         }
 
         Location targetLocation = new Location(
-                originalLocation.getWorld(),
-                originalLocation.getX(),
-                originalLocation.getY(),
-                originalLocation.getZ(),
-                yaw,
-                pitch
+            originalLocation.getWorld(),
+            originalLocation.getX(),
+            originalLocation.getY(),
+            originalLocation.getZ(),
+            yaw,
+            pitch
         );
 
         player.setGliding(false);
@@ -162,15 +136,15 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         PaperLib.teleportAsync(player, targetLocation).thenAccept(result -> {
 
             StringBuilder targetLocationString = new StringBuilder()
-                    .append("world=").append(targetLocation.getWorld().getName())
-                    .append(", x=").append(locFormatter.format(targetLocation.getX()))
-                    .append(", y=").append(locFormatter.format(targetLocation.getY()))
-                    .append(", z=").append(locFormatter.format(targetLocation.getZ()));
+                .append("world=").append(targetLocation.getWorld().getName())
+                .append(", x=").append(locFormatter.format(targetLocation.getX()))
+                .append(", y=").append(locFormatter.format(targetLocation.getY()))
+                .append(", z=").append(locFormatter.format(targetLocation.getZ()));
 
             if (result) {
                 Log.info(ChatColor.YELLOW + "Teleported " + player.getName() + " back to: " + targetLocationString);
-                if (configViolationMessageEnabled) {
-                    player.sendMessage(configViolationMessage);
+                if (getConfig().getBoolean("warn-message-enabled")) {
+                    player.sendMessage(getConfig().getString("warn-message"));
                 }
             } else {
                 Log.error(ChatColor.RED + "Unable to teleport " + player.getName() + " back to: " + targetLocationString);
@@ -182,7 +156,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
 
     private Location getPlayerMeasuringLocation(Player player) {
         Location location = player.getLocation();
-        if (configIgnoreVertical) {
+        if (getConfig().getBoolean("ignore-vertical-movement")) {
             location.setY(0);
         }
         return location;
@@ -191,7 +165,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     private void schedulePlayerDataReset(Player player, String reason) {
         Log.debug("Scheduling data reset for: " + player.getName() + " Reason: " + reason);
         getServer().getScheduler().scheduleSyncDelayedTask(this, () ->
-                resetPlayerData(player, reason), 1L);
+            resetPlayerData(player, reason), 1L);
     }
 
     public void resetPlayerData(Player player, String reason) {
@@ -227,8 +201,8 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     public void onPlayerTeleport(final PlayerTeleportEvent playerTeleportEvent) {
         PlayerTeleportEvent.TeleportCause cause = playerTeleportEvent.getCause();
         if (cause.equals(PlayerTeleportEvent.TeleportCause.UNKNOWN)
-                || cause.equals(PlayerTeleportEvent.TeleportCause.NETHER_PORTAL)
-                || cause.equals(PlayerTeleportEvent.TeleportCause.END_PORTAL)
+            || cause.equals(PlayerTeleportEvent.TeleportCause.NETHER_PORTAL)
+            || cause.equals(PlayerTeleportEvent.TeleportCause.END_PORTAL)
         ) {
             Log.debug("Ignoring Teleport event of type: " + playerTeleportEvent.getCause().toString());
             return;
@@ -256,6 +230,8 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
     }
 
     private void loadConfig() {
+
+        // defaults
         getConfig().addDefault("blocks-traveled-per-20-ticks-limit", 80);
         getConfig().addDefault("ignore-vertical-movement", true);
         getConfig().addDefault("randomize-rotations-on-violation", true);
@@ -264,6 +240,20 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         getConfig().addDefault("verbose-logging", false);
         getConfig().options().copyDefaults(true);
         saveConfig();
+
+        // validate
+        if (getConfig().getInt("blocks-traveled-per-20-ticks-limit") < 1) {
+            getConfig().set("blocks-traveled-per-20-ticks-limit", 1);
+            saveConfig();
+        }
+        if (getConfig().getString("warn-message").isEmpty()) {
+            getConfig().set("warn-message", ChatColor.LIGHT_PURPLE + "Leeeunderscore whispers: Dude slow down or I will ban you!");
+            saveConfig();
+        }
+
+        // statics
+        verboseLogging = getConfig().getBoolean("verbose-logging");
+
     }
 
     static class Log {
@@ -271,7 +261,7 @@ public final class AntiSpeed extends JavaPlugin implements Listener {
         public static final Logger LOGGY = LogManager.getLogger("AntiSpeed");
 
         public static void debug(String message) {
-            if (configVerboseLogging) {
+            if (verboseLogging) {
                 LOGGY.info(message);
             } else {
                 LOGGY.debug(message);
